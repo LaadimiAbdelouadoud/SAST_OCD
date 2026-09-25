@@ -1,0 +1,317 @@
+# pysast default security rules
+# Schema: spec §7.1
+# Two frameworks: Flask (MVP) + Django sources
+
+sources:
+  # ── Flask ──────────────────────────────────────────────────────────────────
+  - id: flask-request-args
+    framework: flask
+    vuln_classes: [sqli, cmdi, code-injection, xss, path-traversal, ssrf, open-redirect]
+    patterns:
+      - "flask.request.args"
+      - "flask.request.args.get"
+      - "flask.request.values"
+      - "flask.request.values.get"
+
+  - id: flask-request-form
+    framework: flask
+    vuln_classes: [sqli, cmdi, code-injection, xss, path-traversal, ssrf, open-redirect]
+    patterns:
+      - "flask.request.form"
+      - "flask.request.form.get"
+
+  - id: flask-request-json
+    framework: flask
+    vuln_classes: [sqli, cmdi, code-injection, xss, path-traversal, ssrf, open-redirect]
+    patterns:
+      - "flask.request.json"
+      - "flask.request.get_json"
+
+  - id: flask-request-data
+    framework: flask
+    vuln_classes: [sqli, cmdi, code-injection, xss, path-traversal, ssrf, deserialization, open-redirect]
+    patterns:
+      - "flask.request.data"
+
+  - id: flask-request-cookies
+    framework: flask
+    vuln_classes: [sqli, xss, open-redirect]
+    patterns:
+      - "flask.request.cookies"
+      - "flask.request.cookies.get"
+
+  - id: flask-request-headers
+    framework: flask
+    vuln_classes: [sqli, xss, ssrf]
+    patterns:
+      - "flask.request.headers"
+      - "flask.request.headers.get"
+
+  - id: flask-request-files
+    framework: flask
+    vuln_classes: [path-traversal]
+    patterns:
+      - "flask.request.files"
+
+  # ── Django ─────────────────────────────────────────────────────────────────
+  - id: django-request-get
+    framework: django
+    vuln_classes: [sqli, cmdi, code-injection, xss, path-traversal, ssrf, open-redirect]
+    patterns:
+      - "django.http.request.QueryDict.__getitem__"
+      - "request.GET"
+      - "request.GET.get"
+
+  - id: django-request-post
+    framework: django
+    vuln_classes: [sqli, cmdi, code-injection, xss, path-traversal, ssrf, open-redirect]
+    patterns:
+      - "request.POST"
+      - "request.POST.get"
+
+  - id: django-request-body
+    framework: django
+    vuln_classes: [sqli, cmdi, code-injection, xss, deserialization]
+    patterns:
+      - "request.body"
+
+  - id: django-request-meta
+    framework: django
+    vuln_classes: [sqli, xss, ssrf]
+    patterns:
+      - "request.META"
+      - "request.META.get"
+
+  - id: django-request-files
+    framework: django
+    vuln_classes: [path-traversal]
+    patterns:
+      - "request.FILES"
+      - "request.FILES.get"
+
+sinks:
+  # ── SQL Injection ──────────────────────────────────────────────────────────
+  - id: sqli-execute
+    vulnerability: "SQL Injection"
+    cwe: "CWE-89"
+    owasp: "A03:2021-Injection"
+    severity: HIGH
+    cvss_v31: 8.6
+    vuln_class: sqli
+    remediation: >
+      Use parameterized queries:
+      cursor.execute('SELECT ... WHERE id = %s', (user_input,))
+    patterns:
+      - "*.execute"
+      - "*.executemany"
+      - "*.raw"
+      - "*.extra"
+    tainted_args: [0]
+
+  # ── Command Injection ──────────────────────────────────────────────────────
+  - id: cmdi-os-system
+    vulnerability: "Command Injection"
+    cwe: "CWE-78"
+    owasp: "A03:2021-Injection"
+    severity: CRITICAL
+    cvss_v31: 9.8
+    vuln_class: cmdi
+    remediation: >
+      Avoid os.system with user input. Use subprocess with a list of arguments
+      and shell=False, or use shlex.quote if a shell is strictly required.
+    patterns:
+      - "os.system"
+      - "os.popen"
+    tainted_args: [0]
+
+  - id: cmdi-subprocess
+    vulnerability: "Command Injection"
+    cwe: "CWE-78"
+    owasp: "A03:2021-Injection"
+    severity: CRITICAL
+    cvss_v31: 9.8
+    vuln_class: cmdi
+    remediation: >
+      Pass a list of arguments to subprocess instead of a shell string, and
+      remove shell=True. E.g.: subprocess.run(["cmd", arg]) with shell=False.
+    patterns:
+      - "subprocess.call"
+      - "subprocess.run"
+      - "subprocess.Popen"
+      - "subprocess.check_output"
+      - "subprocess.check_call"
+    tainted_args: [0]
+    conditions:
+      - kwarg: shell
+        equals: true
+
+  # ── Code Injection ─────────────────────────────────────────────────────────
+  - id: code-injection-eval
+    vulnerability: "Code Injection"
+    cwe: "CWE-94"
+    owasp: "A03:2021-Injection"
+    severity: CRITICAL
+    cvss_v31: 9.8
+    vuln_class: code-injection
+    remediation: >
+      Never pass user-controlled data to eval(), exec(), or compile().
+      Use a safe expression parser or restructure the logic.
+    patterns:
+      - "eval"
+      - "exec"
+      - "compile"
+    tainted_args: [0]
+
+  # ── XSS ───────────────────────────────────────────────────────────────────
+  - id: xss-render-template-string
+    vulnerability: "Cross-Site Scripting (XSS)"
+    cwe: "CWE-79"
+    owasp: "A03:2021-Injection"
+    severity: HIGH
+    cvss_v31: 7.4
+    vuln_class: xss
+    remediation: >
+      Use render_template() with a .html template file (Jinja2 auto-escaping).
+      If render_template_string is required, escape all user data with
+      markupsafe.escape() before interpolation.
+    patterns:
+      - "flask.render_template_string"
+      - "flask.Markup"
+    tainted_args: [0]
+
+  - id: xss-django-httpresponse
+    vulnerability: "Cross-Site Scripting (XSS)"
+    cwe: "CWE-79"
+    owasp: "A03:2021-Injection"
+    severity: HIGH
+    cvss_v31: 7.4
+    vuln_class: xss
+    remediation: >
+      Use Django templates with auto-escaping. If building responses manually,
+      escape user data with django.utils.html.escape().
+    patterns:
+      - "django.http.HttpResponse"
+    tainted_args: [0]
+
+  # ── Path Traversal ─────────────────────────────────────────────────────────
+  - id: path-traversal-open
+    vulnerability: "Path Traversal"
+    cwe: "CWE-22"
+    owasp: "A01:2021-Broken Access Control"
+    severity: HIGH
+    cvss_v31: 7.5
+    vuln_class: path-traversal
+    remediation: >
+      Validate and sanitize file paths with werkzeug.utils.secure_filename()
+      and restrict access to a known safe directory using os.path.abspath +
+      allowlist checking.
+    patterns:
+      - "open"
+      - "flask.send_file"
+      - "flask.send_from_directory"
+    tainted_args: [0]
+
+  # ── SSRF ──────────────────────────────────────────────────────────────────
+  - id: ssrf-requests
+    vulnerability: "Server-Side Request Forgery (SSRF)"
+    cwe: "CWE-918"
+    owasp: "A10:2021-Server-Side Request Forgery"
+    severity: HIGH
+    cvss_v31: 8.6
+    vuln_class: ssrf
+    remediation: >
+      Validate and allowlist URLs before making outbound requests.
+      Never pass user-controlled URLs directly to requests.get/post or
+      similar HTTP clients.
+    patterns:
+      - "requests.get"
+      - "requests.post"
+      - "requests.put"
+      - "requests.delete"
+      - "requests.request"
+      - "urllib.request.urlopen"
+      - "urllib.request.Request"
+      - "httpx.get"
+      - "httpx.post"
+      - "httpx.request"
+    tainted_args: [0]
+
+  # ── Insecure Deserialization ───────────────────────────────────────────────
+  - id: deserialization-pickle
+    vulnerability: "Insecure Deserialization"
+    cwe: "CWE-502"
+    owasp: "A08:2021-Software and Data Integrity Failures"
+    severity: CRITICAL
+    cvss_v31: 9.8
+    vuln_class: deserialization
+    remediation: >
+      Never deserialize untrusted data with pickle or marshal.
+      Use JSON or a schema-validated format instead.
+    patterns:
+      - "pickle.loads"
+      - "pickle.load"
+      - "marshal.loads"
+    tainted_args: [0]
+
+  - id: deserialization-yaml
+    vulnerability: "Insecure Deserialization"
+    cwe: "CWE-502"
+    owasp: "A08:2021-Software and Data Integrity Failures"
+    severity: HIGH
+    cvss_v31: 8.1
+    vuln_class: deserialization
+    remediation: >
+      Use yaml.safe_load() instead of yaml.load(), or explicitly pass
+      Loader=yaml.SafeLoader.
+    patterns:
+      - "yaml.load"
+    tainted_args: [0]
+    conditions:
+      - kwarg: Loader
+        equals: SafeLoader
+    negate_conditions: true  # fire when condition is NOT met
+
+  # ── Open Redirect ─────────────────────────────────────────────────────────
+  - id: open-redirect-flask
+    vulnerability: "Open Redirect"
+    cwe: "CWE-601"
+    owasp: "A01:2021-Broken Access Control"
+    severity: MEDIUM
+    cvss_v31: 6.1
+    vuln_class: open-redirect
+    remediation: >
+      Validate redirect URLs against an allowlist of trusted destinations.
+      Use url_for() for internal redirects and reject any external URLs not
+      explicitly approved.
+    patterns:
+      - "flask.redirect"
+    tainted_args: [0]
+
+sanitizers:
+  - id: int-cast
+    patterns: ["int", "float"]
+    clears: [sqli, cmdi, xss, path-traversal, code-injection, ssrf, open-redirect]
+
+  - id: shlex-quote
+    patterns: ["shlex.quote"]
+    clears: [cmdi]
+
+  - id: markupsafe-escape
+    patterns: ["markupsafe.escape", "flask.escape"]
+    clears: [xss]
+
+  - id: werkzeug-secure-filename
+    patterns: ["werkzeug.utils.secure_filename"]
+    clears: [path-traversal]
+
+  - id: yaml-safe-load
+    patterns: ["yaml.safe_load"]
+    clears: [deserialization]
+
+  - id: django-escape
+    patterns: ["django.utils.html.escape", "django.utils.html.conditional_escape"]
+    clears: [xss]
+
+  - id: os-path-abspath
+    patterns: ["os.path.abspath", "pathlib.Path.resolve"]
+    clears: [path-traversal]
